@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 handler = RotatingFileHandler(
     'my_logger.log',
     maxBytes=50000000,
@@ -56,6 +56,7 @@ def send_message(message, bot_client):
 
 
 def main():
+    logger.debug('Запуск бота')
     bot_client = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
 
@@ -74,7 +75,9 @@ def main():
             time.sleep(300)
 
         except Exception as e:
-            print(f'Бот столкнулся с ошибкой: {e}')
+            error = f'Бот столкнулся с ошибкой: {e}'
+            logger.error(error)
+            send_message(error, bot_client)
             time.sleep(5)
 
 
