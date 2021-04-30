@@ -10,9 +10,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-PRAKTIKUM_TOKEN = os.getenv('PRAKTIKUM_TOKEN')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+PRAKTIKUM_TOKEN = os.environ['PRAKTIKUM_TOKEN']
+TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
+WAITING_TIME = 300
+WAITING_TIME_ERROR = 5
+API_HOMEWORKS_URL = (
+    'https://praktikum.yandex.ru/api/user_api/homework_statuses/'
+)
+
+verdicts = {
+    'reviewing': 'Ваша работа взята в ревью',
+    'approved': ('Ревьюеру всё понравилось, '
+                 'можно приступать к следующему уроку.'),
+    'rejected': 'К сожалению в работе нашлись ошибки.'
+}
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -29,35 +41,63 @@ handler = RotatingFileHandler(
 logger.addHandler(handler)
 
 
+class HomeworkError(Exception):
+    pass
+
+
 def parse_homework_status(homework):
-    homework_name = homework['homework_name']
-    if homework['status'] == 'rejected':
-        verdict = 'К сожалению в работе нашлись ошибки.'
-    else:
-        verdict = ('Ревьюеру всё понравилось, '
-                   'можно приступать к следующему уроку.')
-    return f'У вас проверили работу "{homework_name}"!\n\n{verdict}'
+    homework_name = homework.get('homework_name')
+    if homework_name is None:
+        logger.error(
+            'Ошибка переменной с именнем домашней работы'
+        )
+        raise HomeworkError(
+            'Ошибка переменной с именнем домашней работы'
+        )
+    homework_status = homework.get('status')
+    if homework_status is None:
+        logger.error(
+            'Ошибка переменной со статусом домашней работы'
+        )
+        raise HomeworkError(
+            'Ошибка переменной со статусом домашней работы'
+        )
+    return (
+        f'У вас проверили работу "{homework_name}":\n\n'
+        f'{verdicts[homework_status]}'
+    )
 
 
 def get_homework_statuses(current_timestamp):
     data = {'from_date': current_timestamp}
     headers = {'Authorization': f'OAuth {PRAKTIKUM_TOKEN}'}
-    homework_statuses = requests.get(
-        'https://praktikum.yandex.ru/api/user_api/homework_statuses/',
-        params=data,
-        headers=headers
-    )
-    return homework_statuses.json()
+    try:
+        homework_statuses = requests.get(
+            API_HOMEWORKS_URL,
+            params=data,
+            headers=headers
+        )
+        return homework_statuses.json()
+    except Exception as e:
+        logger.exception(e)
+        return {}
 
 
 def send_message(message, bot_client):
     logger.info('Отправка сообщения')
-    return bot_client.send_message(CHAT_ID, message)
+    try:
+        return bot_client.send_message(CHAT_ID, message)
+    except Exception:
+        logger.exception('Ошибка отправки сообщения')
+        raise HomeworkError(
+            'Ошибка отправки сообщения'
+        )
 
 
 def main():
     logger.debug('Запуск бота')
     bot_client = telegram.Bot(token=TELEGRAM_TOKEN)
+    logger.debug('Бот создался')
     current_timestamp = int(time.time())
 
     while True:
@@ -72,13 +112,13 @@ def main():
                 'current_date',
                 current_timestamp
             )
-            time.sleep(300)
+            time.sleep(WAITING_TIME)
 
         except Exception as e:
             error = f'Бот столкнулся с ошибкой: {e}'
-            logger.error(error)
+            logger.exception(error)
             send_message(error, bot_client)
-            time.sleep(5)
+            time.sleep(WAITING_TIME_ERROR)
 
 
 if __name__ == '__main__':
